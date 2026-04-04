@@ -1,14 +1,14 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from core.pipeline import analyze_content
 from fastapi import FastAPI, UploadFile, File
-from Backend.app.services.ocr import extract_text_from_image
+from app.services.ocr import perform_ocr as extract_text_from_image
 from reverse_image import reverse_image_search
 import openai
 import shutil
 import os
 import random
 
-openai.api_key = "VOTRE_OPENAI_API_KEY"
+openai.api_key = "63c392411218501830997d527e7fdb9034c86ff2a58d826f7fa47962e901524c"
 
 app = FastAPI()
 UPLOAD_FOLDER = "uploads"
