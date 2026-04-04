@@ -1,3 +1,5 @@
+from fastapi import FastAPI, UploadFile, File, Form
+from core.pipeline import analyze_content
 from fastapi import FastAPI, UploadFile, File
 from Backend.app.services.ocr import extract_text_from_image
 from reverse_image import reverse_image_search
@@ -50,6 +52,13 @@ async def verify_content(file: UploadFile = File(...)):
 
     llm_result = response['choices'][0]['message']['content']
 
+@app.post("/analyze")
+async def analyze(
+    file: UploadFile = File(...),
+    caption: str = Form(...)
+):
+    result = await analyze_content(file, caption)
+    return result
     return {
         "structured_data": structured_data,
         "llm_analysis": llm_result
