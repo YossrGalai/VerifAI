@@ -1,4 +1,5 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
+from core.pipeline import analyze_content
 
 app = FastAPI()
 
@@ -7,9 +8,9 @@ def read_root():
     return {"message": "VerifAI API running 🚀"}
 
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
-    return {
-        "verdict": "Uncertain",
-        "confidence": 50,
-        "explanation": "Processing not implemented yet"
-    }
+async def analyze(
+    file: UploadFile = File(...),
+    caption: str = Form(...)
+):
+    result = await analyze_content(file, caption)
+    return result
