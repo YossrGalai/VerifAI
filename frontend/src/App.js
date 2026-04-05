@@ -162,54 +162,44 @@ const STEPS = [
   { label: "AI contextual consistency analysis (GPT-4o)", ms: 2100 },
 ];
 
-/*const MOCK_MIS = {
-  verdict: "mis", label: "Misleading", score: 87,
-  axes: [
-    { name: "Temporal consistency", score: 14, color: "#FF6B6B" },
-    { name: "Geographic consistency", score: 22, color: "#FF6B6B" },
-    { name: "Caption-visual match", score: 31, color: "#F59E0B" },
-    { name: "Source credibility", score: 18, color: "#FF6B6B" },
-  ],
-  findings: [
-    "Image traces back to a 2019 protest in Santiago, Chile — not the 2024 event stated in the caption.",
-    "Reverse image search found 14 distinct prior uses across unrelated political narratives (2018–2023).",
-    "EXIF metadata indicates South America geolocation, directly contradicting the claimed European context.",
-  ],
-  conclusion: "This image is being used in a misleading context. The visual was captured in a different country and year, and has been recycled across multiple unrelated narratives.",
-  meta: { Origin: "2019 — Chile", "Reuse count": "14 instances", "First seen": "March 2019", Language: "Auto-detected", OCR: "Caption extracted", Metadata: "Inconsistent" },
-};*/
-
-/*const MOCK_REAL = {
-  verdict: "real", label: "Authentic", score: 91,
-  axes: [
-    { name: "Temporal consistency", score: 92, color: "#14C88C" },
-    { name: "Geographic consistency", score: 89, color: "#14C88C" },
-    { name: "Caption-visual match", score: 94, color: "#14C88C" },
-    { name: "Source credibility", score: 88, color: "#14C88C" },
-  ],
-  findings: [
-    "No prior usage detected — image appears in only one context, consistent with the claimed event.",
-    "Caption sentiment, language, and described scene align precisely with the visual content.",
-    "File creation date matches the claimed publication window. No signs of digital manipulation detected.",
-  ],
-  conclusion: "Content is authentic. The image, caption, and contextual metadata are mutually consistent with no detected anomalies or prior reuse.",
-  meta: { Origin: "Verified — recent", "Reuse count": "No reuse", "First seen": "Matches claim", Language: "Consistent", OCR: "Caption matched", Metadata: "Consistent" },
-};*/
+// ─── Normalise toute réponse backend pour éviter les crashes ───────────────
+function normalizeResult(data) {
+  if (!data || typeof data !== "object") {
+    return {
+      verdict: "unc",
+      label: "Incertain",
+      score: 0,
+      axes: [],
+      findings: ["Aucun élément trouvé"],
+      conclusion: "Analyse non disponible.",
+      meta: {},
+    };
+  }
+  return {
+    verdict:    data.verdict    ?? "unc",
+    label:      data.label      ?? "Incertain",
+    score:      typeof data.score === "number" ? Math.min(100, Math.max(0, data.score)) : 0,
+    axes:       Array.isArray(data.axes)     ? data.axes     : [],
+    findings:   Array.isArray(data.findings) ? data.findings : ["Aucun élément trouvé"],
+    conclusion: data.conclusion ?? "",
+    meta:       data.meta && typeof data.meta === "object" ? data.meta : {},
+  };
+}
 
 export default function VerifAI() {
-  const [tab, setTab] = useState("url");
-  const [page, setPage] = useState("analyze");
-  const [url, setUrl] = useState("");
-  const [caption, setCaption] = useState("");
-  const [image, setImage] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [dragging, setDragging] = useState(false);
-  const [phase, setPhase] = useState("idle");
+  const [tab, setTab]             = useState("url");
+  const [page, setPage]           = useState("analyze");
+  const [url, setUrl]             = useState("");
+  const [caption, setCaption]     = useState("");
+  const [image, setImage]         = useState(null);
+  const [preview, setPreview]     = useState(null);
+  const [dragging, setDragging]   = useState(false);
+  const [phase, setPhase]         = useState("idle");
   const [activeStep, setActiveStep] = useState(-1);
   const [doneSteps, setDoneSteps] = useState([]);
-  const [result, setResult] = useState(null);
-  const [barW, setBarW] = useState(0);
-  const [axisW, setAxisW] = useState([]);
+  const [result, setResult]       = useState(null);
+  const [barW, setBarW]           = useState(0);
+  const [axisW, setAxisW]         = useState([]);
   const fileRef = useRef();
 
   useEffect(() => {
@@ -219,15 +209,28 @@ export default function VerifAI() {
     return () => document.head.removeChild(s);
   }, []);
 
+  // ─── FIX 1 : accès sécurisé à axes ────────────────────────────────────────
   useEffect(() => {
     if (phase === "result" && result) {
-      setTimeout(() => setBarW(result.score), 80);
-      setTimeout(() => setAxisW(result.axes.map(a => a.score)), 150);
-    } else { setBarW(0); setAxisW([]); }
+      setTimeout(() => setBarW(result.score ?? 0), 80);
+      setTimeout(() => setAxisW((result.axes ?? []).map(a => a.score ?? 0)), 150);
+    } else {
+      setBarW(0);
+      setAxisW([]);
+    }
   }, [phase, result]);
 
-  function handleFile(f) { if (!f) return; setImage(f); setPreview(URL.createObjectURL(f)); }
-  function handleDrop(e) { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }
+  function handleFile(f) {
+    if (!f) return;
+    setImage(f);
+    setPreview(URL.createObjectURL(f));
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  }
 
   async function runAnalysis() {
     setPhase("analyzing");
@@ -235,60 +238,64 @@ export default function VerifAI() {
     setDoneSteps([]);
 
     try {
-      let response;
+      const formData = new FormData();
+      formData.append("caption", caption);
 
       if (tab === "url") {
-        // cas URL
-        response = await fetch("http://localhost:8000/analyze", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            url: url,
-            caption: caption,
-          }),
-        });
-
+        formData.append("url", url);
       } else {
-        // cas IMAGE
-        const formData = new FormData();
         formData.append("file", image);
-        formData.append("caption", caption);
-
-        response = await fetch("http://localhost:8000/analyze", {
-          method: "POST",
-          body: formData,
-        });
       }
 
-      const data = await response.json();
+      const response = await fetch("http://localhost:8000/analyze", {
+        method: "POST",
+        body: formData,
+      });
 
-      // simulate steps (optionnel)
+      // ─── Lecture de la réponse ──────────────────────────────────────────
+      let rawData = null;
+      try {
+        rawData = await response.json();
+      } catch {
+        throw new Error("Réponse invalide du backend (non-JSON)");
+      }
+
+      if (!response.ok) {
+        const detail = rawData?.detail ?? `Erreur HTTP ${response.status}`;
+        throw new Error(detail);
+      }
+
+      // ─── Simulation des étapes pendant que les données arrivent ─────────
       for (let i = 0; i < STEPS.length; i++) {
         await new Promise(r => setTimeout(r, STEPS[i].ms));
         setDoneSteps(p => [...p, i]);
         if (i < STEPS.length - 1) setActiveStep(i + 1);
       }
 
-      setResult(data);
+      // ─── FIX 2 : normalisation avant setResult ──────────────────────────
+      setResult(normalizeResult(rawData));
       setPhase("result");
 
     } catch (error) {
-      console.error("Error:", error);
-      alert("Backend error 🚨");
+      console.error("Analysis error:", error);
+      alert(`Erreur d'analyse 🚨\n${error.message}`);
       setPhase("idle");
     }
   }
 
   function reset() {
-    setPhase("idle"); setUrl(""); setCaption("");
-    setImage(null); setPreview(null); setResult(null);
-    setActiveStep(-1); setDoneSteps([]);
+    setPhase("idle");
+    setUrl("");
+    setCaption("");
+    setImage(null);
+    setPreview(null);
+    setResult(null);
+    setActiveStep(-1);
+    setDoneSteps([]);
   }
 
   const canGo = (tab === "url" && url.trim().length > 8) || (tab === "upload" && image);
-  const v = result?.verdict;
+  const v = result?.verdict ?? "unc";
 
   return (
     <div style={{ minHeight: "100vh", background: "#050A14" }}>
@@ -301,8 +308,8 @@ export default function VerifAI() {
             <span className="logo-text">Verif<span>AI</span></span>
           </div>
           <div className="nav-right">
-            <span className={`nav-link ${page==="analyze"?"active":""}`} onClick={() => setPage("analyze")}>Analyze</span>
-            <span className={`nav-link ${page==="how"?"active":""}`} onClick={() => setPage("how")}>How it works</span>
+            <span className={`nav-link ${page === "analyze" ? "active" : ""}`} onClick={() => setPage("analyze")}>Analyze</span>
+            <span className={`nav-link ${page === "how" ? "active" : ""}`} onClick={() => setPage("how")}>How it works</span>
             <span className="nav-badge">Hackathon 2025</span>
           </div>
         </div>
@@ -317,8 +324,11 @@ export default function VerifAI() {
           </h1>
           <p>Cross-check images and claims instantly. VerifAI surfaces the truth behind online content — transparently, with clear reasoning.</p>
           <div className="stats">
-            {[["98","%","Detection accuracy"],["2.4","s","Avg. analysis time"],["14","+","Sources cross-checked"]].map(([n,u,l]) => (
-              <div key={l}><div className="stat-n">{n}<span>{u}</span></div><div className="stat-l">{l}</div></div>
+            {[["98", "%", "Detection accuracy"], ["2.4", "s", "Avg. analysis time"], ["14", "+", "Sources cross-checked"]].map(([n, u, l]) => (
+              <div key={l}>
+                <div className="stat-n">{n}<span>{u}</span></div>
+                <div className="stat-l">{l}</div>
+              </div>
             ))}
           </div>
         </div>
@@ -337,14 +347,14 @@ export default function VerifAI() {
               {phase === "idle" && (
                 <>
                   <div className="tabs">
-                    <button className={`tab ${tab==="url"?"active":""}`} onClick={() => setTab("url")}>🔗 Analyze URL</button>
-                    <button className={`tab ${tab==="upload"?"active":""}`} onClick={() => setTab("upload")}>🖼️ Upload Image</button>
+                    <button className={`tab ${tab === "url" ? "active" : ""}`} onClick={() => setTab("url")}>🔗 Analyze URL</button>
+                    <button className={`tab ${tab === "upload" ? "active" : ""}`} onClick={() => setTab("upload")}>🖼️ Upload Image</button>
                   </div>
                   <div className="card-body">
                     {tab === "url" ? (
                       <>
-                        <label className="lbl">Post or article URL</label>
-                        <input className="inp" placeholder="https://facebook.com/post/... or any article link" value={url} onChange={e => setUrl(e.target.value)} />
+                        <label className="lbl">Image URL</label>
+                        <input className="inp" placeholder="https://example.com/image.jpg" value={url} onChange={e => setUrl(e.target.value)} />
                         <label className="lbl">Caption or claim</label>
                         <textarea className="inp" placeholder="Paste the caption, headline, or claim being made about this content…" value={caption} onChange={e => setCaption(e.target.value)} />
                       </>
@@ -353,16 +363,27 @@ export default function VerifAI() {
                         {preview ? (
                           <div className="prev-box">
                             <img src={preview} alt="" className="prev-img" />
-                            <div><div className="prev-name">{image?.name}</div><div className="prev-size">{image ? (image.size/1024).toFixed(1)+" KB" : ""}</div></div>
+                            <div>
+                              <div className="prev-name">{image?.name}</div>
+                              <div className="prev-size">{image ? (image.size / 1024).toFixed(1) + " KB" : ""}</div>
+                            </div>
                             <button className="prev-rm" onClick={() => { setImage(null); setPreview(null); }}>✕</button>
                           </div>
                         ) : (
-                          <div className={`upload-z ${dragging?"drag":""}`} onClick={() => fileRef.current.click()} onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={handleDrop}>
+                          <div
+                            className={`upload-z ${dragging ? "drag" : ""}`}
+                            onClick={() => fileRef.current.click()}
+                            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                            onDragLeave={() => setDragging(false)}
+                            onDrop={handleDrop}
+                          >
                             <input ref={fileRef} type="file" accept="image/*" onChange={e => handleFile(e.target.files[0])} />
                             <div className="u-icon">📁</div>
                             <div className="u-title">Drop image or click to browse</div>
                             <div className="u-sub">Drag & drop or click — any image file</div>
-                            <div className="u-formats">{["JPG","PNG","WEBP","GIF"].map(f=><span className="fmt" key={f}>{f}</span>)}</div>
+                            <div className="u-formats">
+                              {["JPG", "PNG", "WEBP", "GIF"].map(f => <span className="fmt" key={f}>{f}</span>)}
+                            </div>
                           </div>
                         )}
                         <label className="lbl">Caption or claim associated with this image</label>
@@ -381,7 +402,10 @@ export default function VerifAI() {
                   <div className="anl-sub">Running 4-stage AI verification pipeline</div>
                   <ul className="step-list">
                     {STEPS.map((s, i) => (
-                      <li key={i} className={`step-li ${doneSteps.includes(i)?"done":""} ${activeStep===i&&!doneSteps.includes(i)?"active":""}`}>
+                      <li
+                        key={i}
+                        className={`step-li ${doneSteps.includes(i) ? "done" : ""} ${activeStep === i && !doneSteps.includes(i) ? "active" : ""}`}
+                      >
                         <div className="s-dot" />
                         {s.label}
                         {doneSteps.includes(i) && <span className="s-check">✓</span>}
@@ -395,8 +419,10 @@ export default function VerifAI() {
                 <div className="res">
                   <div className="v-header">
                     <div>
-                      <div style={{fontSize:9,textTransform:"uppercase",letterSpacing:".1em",color:"rgba(232,237,245,.28)",marginBottom:8}}>Verdict</div>
-                      <div className={`v-badge ${v}`}>{v==="real"?"✅":v==="mis"?"🚨":"⚠️"} {result.label}</div>
+                      <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: ".1em", color: "rgba(232,237,245,.28)", marginBottom: 8 }}>Verdict</div>
+                      <div className={`v-badge ${v}`}>
+                        {v === "real" ? "✅" : v === "mis" ? "🚨" : "⚠️"} {result.label}
+                      </div>
                     </div>
                     <div className="v-score-wrap">
                       <div className="v-score-lbl">Confidence score</div>
@@ -406,18 +432,19 @@ export default function VerifAI() {
 
                   <div className="dash">
                     {/* OVERVIEW METRICS */}
+                    {/* ─── FIX 3 : result.findings?.length avec fallback ── */}
                     <div>
                       <div className="sec-title">Overview</div>
                       <div className="dash-grid">
                         {[
-                          { l:"Verdict", v:result.label, s:v==="mis"?"Requires review":v==="real"?"Content verified":"Inconclusive" },
-                          { l:"Confidence", v:result.score+"%", s:"Overall AI score" },
-                          { l:"Findings", v:result.findings.length, s:"Evidence points" },
-                          { l:"Reuse", v:result.meta["Reuse count"], s:"Image reuse data" },
+                          { l: "Verdict",    v: result.label,                           s: v === "mis" ? "Requires review" : v === "real" ? "Content verified" : "Inconclusive" },
+                          { l: "Confidence", v: result.score + "%",                     s: "Overall AI score" },
+                          { l: "Findings",   v: (result.findings ?? []).length,         s: "Evidence points" },
+                          { l: "Reuse",      v: result.meta?.["Reuse count"] ?? "N/A",  s: "Image reuse data" },
                         ].map(c => (
                           <div className="d-card" key={c.l}>
                             <div className="d-card-lbl">{c.l}</div>
-                            <div className="d-card-val" style={{fontSize:String(c.v).length>6?13:18}}>{c.v}</div>
+                            <div className="d-card-val" style={{ fontSize: String(c.v).length > 6 ? 13 : 18 }}>{c.v}</div>
                             <div className="d-card-sub">{c.s}</div>
                           </div>
                         ))}
@@ -427,44 +454,48 @@ export default function VerifAI() {
                     {/* OVERALL CONFIDENCE BAR */}
                     <div>
                       <div className="bar-lbl-row"><span>Overall confidence score</span><span>{result.score}%</span></div>
-                      <div className="bar-track"><div className={`bar-fill ${v}`} style={{width:`${barW}%`}} /></div>
+                      <div className="bar-track"><div className={`bar-fill ${v}`} style={{ width: `${barW}%` }} /></div>
                     </div>
 
-                    {/* PER-AXIS BREAKDOWN */}
-                    <div>
-                      <div className="sec-title">Per-axis breakdown — why the AI decided</div>
-                      <div className="axis-grid">
-                        {result.axes.map((a, i) => (
-                          <div className="axis-card" key={a.name}>
-                            <div className="axis-name">{a.name}</div>
-                            <div className="axis-val" style={{color:a.color}}>{axisW[i] ?? 0}%</div>
-                            <div className="axis-mini-track">
-                              <div className="axis-mini-fill" style={{width:`${axisW[i]??0}%`,background:a.color}} />
+                    {/* PER-AXIS BREAKDOWN — rendu uniquement si axes non vide */}
+                    {(result.axes ?? []).length > 0 && (
+                      <div>
+                        <div className="sec-title">Per-axis breakdown — why the AI decided</div>
+                        <div className="axis-grid">
+                          {result.axes.map((a, i) => (
+                            <div className="axis-card" key={a.name ?? i}>
+                              <div className="axis-name">{a.name ?? "Axis"}</div>
+                              <div className="axis-val" style={{ color: a.color ?? "#14C88C" }}>{axisW[i] ?? 0}%</div>
+                              <div className="axis-mini-track">
+                                <div className="axis-mini-fill" style={{ width: `${axisW[i] ?? 0}%`, background: a.color ?? "#14C88C" }} />
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
-                    {/* METADATA */}
-                    <div>
-                      <div className="sec-title">Analysis metadata</div>
-                      <div className="meta-grid">
-                        {Object.entries(result.meta).map(([k,val]) => (
-                          <div className="meta-c" key={k}>
-                            <div className="meta-l">{k}</div>
-                            <div className="meta-v">{val}</div>
-                          </div>
-                        ))}
+                    {/* METADATA — rendu uniquement si meta non vide */}
+                    {Object.keys(result.meta ?? {}).length > 0 && (
+                      <div>
+                        <div className="sec-title">Analysis metadata</div>
+                        <div className="meta-grid">
+                          {Object.entries(result.meta).map(([k, val]) => (
+                            <div className="meta-c" key={k}>
+                              <div className="meta-l">{k}</div>
+                              <div className="meta-v">{val ?? "—"}</div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* KEY FINDINGS */}
                     <div>
                       <div className="sec-title">Key findings — numbered evidence</div>
-                      {result.findings.map((f, i) => (
+                      {(result.findings ?? []).map((f, i) => (
                         <div className="finding" key={i}>
-                          <div className="f-num">{i+1}</div>
+                          <div className="f-num">{i + 1}</div>
                           <div className="f-text">{f}</div>
                         </div>
                       ))}
@@ -473,7 +504,7 @@ export default function VerifAI() {
                     {/* CONCLUSION */}
                     <div className={`conc ${v}`}>
                       <div className="conc-lbl">Final conclusion</div>
-                      <div className="conc-text">{result.conclusion}</div>
+                      <div className="conc-text">{result.conclusion || "Aucune conclusion disponible."}</div>
                     </div>
 
                     <button className="reset-btn" onClick={reset}>← Analyze another piece of content</button>
@@ -488,13 +519,13 @@ export default function VerifAI() {
               <div className="sec-h syne">Built to meet every evaluation axis</div>
               <div className="crit-grid">
                 {[
-                  { ico:"💡", bg:"rgba(20,200,140,.1)", t:"Clear & explainable output", d:"Every result shows a verdict, confidence score, per-axis breakdown, and numbered findings in plain language.", c:["Verification status badge","Confidence score (0–100%)","Reasoning explanation"] },
-                  { ico:"🎯", bg:"rgba(59,130,246,.1)", t:"Intuitive UX", d:"Two-path input (URL or upload). Status, score, and reasoning appear immediately — no digging required.", c:["Status immediately visible","Score front-and-center","Findings numbered clearly"] },
-                  { ico:"🤖", bg:"rgba(245,158,11,.1)", t:"AI-driven verification", d:"GPT-4o is the core engine. It receives OCR text, reverse search context, and metadata to reason across 4 consistency axes.", c:["Manipulation detection","Inconsistency identification","LLM chain of thought"] },
-                  { ico:"🔒", bg:"rgba(20,200,140,.1)", t:"Transparency & trust", d:"No black-box outputs. Every decision is backed by numbered evidence, source data, and an axis-by-axis score breakdown.", c:["Per-axis confidence","Source traceability","Plain-language conclusions"] },
+                  { ico: "💡", bg: "rgba(20,200,140,.1)", t: "Clear & explainable output",  d: "Every result shows a verdict, confidence score, per-axis breakdown, and numbered findings in plain language.", c: ["Verification status badge", "Confidence score (0–100%)", "Reasoning explanation"] },
+                  { ico: "🎯", bg: "rgba(59,130,246,.1)", t: "Intuitive UX",                 d: "Two-path input (URL or upload). Status, score, and reasoning appear immediately — no digging required.",     c: ["Status immediately visible", "Score front-and-center", "Findings numbered clearly"] },
+                  { ico: "🤖", bg: "rgba(245,158,11,.1)", t: "AI-driven verification",       d: "GPT-4o is the core engine. It receives OCR text, reverse search context, and metadata to reason across 4 consistency axes.", c: ["Manipulation detection", "Inconsistency identification", "LLM chain of thought"] },
+                  { ico: "🔒", bg: "rgba(20,200,140,.1)", t: "Transparency & trust",         d: "No black-box outputs. Every decision is backed by numbered evidence, source data, and an axis-by-axis score breakdown.", c: ["Per-axis confidence", "Source traceability", "Plain-language conclusions"] },
                 ].map(c => (
                   <div className="crit-card" key={c.t}>
-                    <div className="crit-ico" style={{background:c.bg}}>{c.ico}</div>
+                    <div className="crit-ico" style={{ background: c.bg }}>{c.ico}</div>
                     <h3>{c.t}</h3>
                     <p>{c.d}</p>
                     <div className="crit-checks">
@@ -513,10 +544,10 @@ export default function VerifAI() {
             <div className="sec-h syne">Four-stage verification pipeline</div>
             <div className="steps-g">
               {[
-                { n:"01", ico:"📥", t:"Content ingestion", d:"URL scraping extracts image and post text automatically. File upload accepts any image. Both paths converge into the same pipeline." },
-                { n:"02", ico:"📄", t:"OCR + text extraction", d:"pytesseract or Google Vision reads embedded text from the image. The caption becomes the 'claim' to verify against." },
-                { n:"03", ico:"🔎", t:"Reverse image search", d:"SerpAPI scans Google Images to find the image's original source, first-seen date, and every prior context of reuse." },
-                { n:"04", ico:"🤖", t:"LLM reasoning engine", d:"GPT-4o receives all signals — OCR text, caption, reverse search results, metadata — and reasons across 4 axes to return a structured JSON verdict." },
+                { n: "01", ico: "📥", t: "Content ingestion",      d: "URL scraping extracts image and post text automatically. File upload accepts any image. Both paths converge into the same pipeline." },
+                { n: "02", ico: "📄", t: "OCR + text extraction",   d: "pytesseract or Google Vision reads embedded text from the image. The caption becomes the 'claim' to verify against." },
+                { n: "03", ico: "🔎", t: "Reverse image search",    d: "SerpAPI scans Google Images to find the image's original source, first-seen date, and every prior context of reuse." },
+                { n: "04", ico: "🤖", t: "LLM reasoning engine",    d: "GPT-4o receives all signals — OCR text, caption, reverse search results, metadata — and reasons across 4 axes to return a structured JSON verdict." },
               ].map(s => (
                 <div className="s-card" key={s.n}>
                   <div className="s-n">Step {s.n}</div>
@@ -527,21 +558,21 @@ export default function VerifAI() {
               ))}
             </div>
 
-            <div style={{marginTop:44}}>
+            <div style={{ marginTop: 44 }}>
               <div className="sec-lbl">AI reasoning</div>
               <div className="sec-h syne">Four consistency axes</div>
-              <div className="axis-grid" style={{marginBottom:0}}>
+              <div className="axis-grid" style={{ marginBottom: 0 }}>
                 {[
-                  { name:"Temporal consistency", desc:"Does the image date match the claimed event timeline?", c:"#14C88C" },
-                  { name:"Geographic consistency", desc:"Does the image location match the described geography?", c:"#3B82F6" },
-                  { name:"Caption-visual match", desc:"Does what the text claims align with what the image shows?", c:"#F59E0B" },
-                  { name:"Source credibility", desc:"Has this image been reused before? How many times, and in what contexts?", c:"#14C88C" },
+                  { name: "Temporal consistency",  desc: "Does the image date match the claimed event timeline?",                              c: "#14C88C" },
+                  { name: "Geographic consistency", desc: "Does the image location match the described geography?",                             c: "#3B82F6" },
+                  { name: "Caption-visual match",   desc: "Does what the text claims align with what the image shows?",                        c: "#F59E0B" },
+                  { name: "Source credibility",     desc: "Has this image been reused before? How many times, and in what contexts?",          c: "#14C88C" },
                 ].map(a => (
-                  <div className="axis-card" key={a.name} style={{padding:18}}>
+                  <div className="axis-card" key={a.name} style={{ padding: 18 }}>
                     <div className="axis-name">{a.name}</div>
-                    <div style={{fontSize:12,color:"rgba(232,237,245,.42)",lineHeight:1.6,marginBottom:12}}>{a.desc}</div>
-                    <div style={{height:3,background:"rgba(255,255,255,.07)",borderRadius:100,overflow:"hidden"}}>
-                      <div style={{height:"100%",width:"72%",background:a.c,borderRadius:100}} />
+                    <div style={{ fontSize: 12, color: "rgba(232,237,245,.42)", lineHeight: 1.6, marginBottom: 12 }}>{a.desc}</div>
+                    <div style={{ height: 3, background: "rgba(255,255,255,.07)", borderRadius: 100, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: "72%", background: a.c, borderRadius: 100 }} />
                     </div>
                   </div>
                 ))}

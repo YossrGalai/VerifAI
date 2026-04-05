@@ -1,80 +1,151 @@
 import os
-import json
-import re
+import logging
 from dotenv import load_dotenv
-from groq import Groq
 
+logger = logging.getLogger(__name__)
 load_dotenv()
 
-
-def safe_extract_json(text: str) -> dict:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise ValueError("No JSON found in model output")
-    return json.loads(match.group())
-
-
-def normalize_response(data: dict) -> dict:
-    # 🔥 FORCE axes TO ALWAYS BE A LIST
-    if not isinstance(data.get("axes"), list):
-        data["axes"] = []
-
-    # safety for each axis item
-    cleaned_axes = []
-    for a in data["axes"]:
-        if isinstance(a, dict):
-            cleaned_axes.append({
-                "name": a.get("name", "unknown"),
-                "score": a.get("score", 0),
-                "color": a.get("color", "#14C88C"),
-            })
-
-    data["axes"] = cleaned_axes
-    return data
+try:
+    from groq import Groq
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if groq_api_key:
+        client = Groq(api_key=groq_api_key)
+    else:
+        logger.warning("GROQ_API_KEY not found in environment")
+        client = None
+except ImportError:
+    logger.warning("Groq library not installed")
+    client = None
+except Exception as e:
+    logger.error(f"Failed to initialize Groq client: {e}")
+    client = None
 
 
-async def get_llm_verdict(caption: str, image_description: str, image_context: str) -> dict:
+def analyze_with_llm(context: dict) -> dict:
+    """
+    Envoie le contexte structuré à Groq (LLaMA3) et retourne son analyse.
+    """
+    fallback = {
+        "success": False,
+        "analysis": "Analyse LLM non disponible",
+        "error": "Service LLM indisponible"
+    }
 
-    api_key = os.getenv("GROQ_KEY")
+    if not client:
+        return fallback
+    if not context:
+        return fallback
 
-    if not api_key:
-        raise RuntimeError("Missing GROQ_API_KEY")
+    try:
+        ocr_data      = context.get("ocr", {})
+        ocr_text      = ocr_data.get("text") or "Aucun texte extrait."
 
-    client = Groq(api_key=api_key)
+        reverse_data    = context.get("reverse_image", {})
+        reverse_results = reverse_data.get("results") or []
+        reverse_success = reverse_data.get("success", False)
 
-    prompt = f"""
-Return ONLY valid JSON.
+        suspicious_signals = context.get("suspicious_signals") or []
 
-Caption: {caption}
-Image: {image_description}
-Context: {image_context}
+        article_data  = context.get("article", {})
+        article_title = article_data.get("title", "")
+        article_text  = article_data.get("text", "")
 
-Return format:
-{{
-  "verdict": "mis" | "real" | "unc",
-  "label": "Misleading" | "Authentic" | "Uncertain",
-  "score": 0-100,
-  "axes": [
-    {{"name": "Temporal consistency", "score": 0-100, "color": "#14C88C"}},
-    {{"name": "Geographic consistency", "score": 0-100, "color": "#14C88C"}},
-    {{"name": "Caption-visual match", "score": 0-100, "color": "#14C88C"}},
-    {{"name": "Source credibility", "score": 0-100, "color": "#14C88C"}}
-  ],
-  "findings": [],
-  "conclusion": "",
-  "meta": {{}}
-}}
+        caption = context.get("caption", "")
+
+    except Exception as e:
+        logger.error(f"Error extracting context data: {e}")
+        return fallback
+
+    try:
+        # Résumé reverse search
+        if reverse_results:
+            reverse_str = "\n".join(
+                f"  - [{r.get('source','?')}] {r.get('title','?')} ({r.get('date','?')}) — {r.get('link','')}"
+                for r in reverse_results
+            )
+        elif reverse_success:
+            reverse_str = "Recherche inversée effectuée : aucune occurrence trouvée (image potentiellement originale ou très récente)."
+        else:
+            reverse_str = "Recherche inversée non disponible ou échouée."
+
+        signals_str = "\n".join(f"  - {s}" for s in suspicious_signals) if suspicious_signals else "  Aucun signal suspect automatique détecté."
+
+        # Section article optionnelle
+        article_section = ""
+        if article_title or article_text:
+            article_section = f"""
+5. CONTENU DE L'ARTICLE SOURCE :
+   Titre : {article_title or 'Non disponible'}
+   Texte : {article_text[:800] if article_text else 'Non disponible'}
 """
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        max_tokens=1200,
-    )
+        prompt = f"""Tu es un expert en fact-checking et vérification de contenu visuel.
 
-    raw = response.choices[0].message.content.strip()
+Voici toutes les données disponibles sur le contenu soumis :
 
-    parsed = safe_extract_json(raw)
+1. DESCRIPTION / CAPTION FOURNIE PAR L'UTILISATEUR :
+   « {caption or 'Aucune description fournie.'} »
 
-    return normalize_response(parsed)
+2. TEXTE EXTRAIT DE L'IMAGE (OCR) :
+   {ocr_text}
+
+3. RÉSULTATS DE RECHERCHE INVERSÉE :
+{reverse_str}
+
+4. SIGNAUX SUSPECTS DÉTECTÉS AUTOMATIQUEMENT :
+{signals_str}
+{article_section}
+---
+
+INSTRUCTIONS :
+Tu dois analyser la cohérence entre la description fournie et le contenu réel de l'image.
+
+- Si la description contient des affirmations vérifiables (date, lieu, événement, personne), évalue leur plausibilité.
+- Si la recherche inversée montre des réutilisations dans d'autres contextes, c'est un signal fort de tromperie.
+- Si aucune source externe n'est trouvée, base-toi sur la logique interne de la description.
+- Donne un score de confiance RÉALISTE : pas 0 sauf si vraiment aucune donnée, pas 100 sauf si tout est confirmé.
+
+EXEMPLES DE RAISONNEMENT :
+- Description vague + image générique + pas de source → Incertain, score 40-60
+- Description avec date/lieu précis + image ne contenant aucun indice contradictoire → Réel, score 65-80
+- Description avec affirmation forte + image réutilisée dans d'autres contextes → Trompeur, score 70-90
+- Description clairement cohérente avec une image connue et bénigne → Réel, score 75-85
+
+Réponds STRICTEMENT dans ce format (respecte les labels exacts) :
+
+Verdict: (Réel / Trompeur / Incertain)
+Score de confiance: (0-100)
+Explication:
+- Point 1
+- Point 2
+- Point 3
+Conclusion finale:
+(1-2 phrases maximum, claire et directe)
+"""
+
+    except Exception as e:
+        logger.error(f"Error building prompt: {e}")
+        return fallback
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+
+        if response and hasattr(response, "choices") and response.choices:
+            llm_text = response.choices[0].message.content
+            if llm_text:
+                logger.info(f"LLM raw response:\n{llm_text}")
+                return {"success": True, "analysis": llm_text, "error": None}
+
+        return fallback
+
+    except Exception as e:
+        logger.error(f"Groq API error: {str(e)}")
+        return {
+            "success": False,
+            "analysis": "Analyse LLM échouée",
+            "error": "Service LLM temporarily unavailable"
+        }
