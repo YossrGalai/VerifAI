@@ -136,3 +136,22 @@ cd Backend
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
+
+### Frontend setup
+```bash
+cd frontend
+npm install
+
+### Lancement local
+1) Démarrer le backend
+```bash
+cd Backend
+uvicorn main:app --reload --port 8000
+API disponible sur http://localhost:8000
+Swagger UI: http://localhost:8000/docs
+
+### 2) Démarrer le frontend
+```bash
+cd frontend
+npm start
+SPA disponible sur http://localhost:3000
