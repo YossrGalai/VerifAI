@@ -10,6 +10,9 @@ VerifAI est un prototype full-stack pour la détection de désinformation en lig
 - Recherche inversée : **SerpAPI**
 - Stockage : fichiers locaux pour images uploadées / temporaires
 
+## 🏗️ Architecture
+The diagram below shows the complete VerifAI AI pipeline from input to decision.
+![VerifAI System](docs/verifai-diagram.png)
 
 ## Fonctionnalités
 - **Extraction intelligente** : traitement d’image uploadée ou URL
