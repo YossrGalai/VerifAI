@@ -14,6 +14,11 @@ VerifAI est un prototype full-stack pour la détection de désinformation en lig
 The diagram below shows the complete VerifAI AI pipeline from input to decision.
 ![VerifAI System](docs/verifai-diagram.png)
 
+## 🎨 Design / Diagram
+
+👉 View the system design on Canva:
+https://canva.link/l3tggmem6je2srh
+
 ## Fonctionnalités
 - **Extraction intelligente** : traitement d’image uploadée ou URL
 - **OCR avancé** : extraction de texte depuis image via Tesseract
