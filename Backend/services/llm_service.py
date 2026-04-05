@@ -102,7 +102,15 @@ Tu dois analyser la cohérence entre la description fournie et le contenu réel 
 
 - Si la description contient des affirmations vérifiables (date, lieu, événement, personne), évalue leur plausibilité.
 - Si la recherche inversée montre des réutilisations dans d'autres contextes, c'est un signal fort de tromperie.
-- Si aucune source externe n'est trouvée, base-toi sur la logique interne de la description.
+- Même en absence de sources externes :
+
+        - Analyse la plausibilité de la description
+        - Analyse le ton (exagéré, politique, émotionnel)
+        - Si la description semble inventée ou non vérifiable → penche vers Trompeur (50-70)
+        - Si elle est neutre → Incertain (40-60)
+        - Si elle semble réaliste → Réel (60-80)
+
+        Tu DOIS éviter de donner toujours 40.
 - Donne un score de confiance RÉALISTE : pas 0 sauf si vraiment aucune donnée, pas 100 sauf si tout est confirmé.
 
 EXEMPLES DE RAISONNEMENT :

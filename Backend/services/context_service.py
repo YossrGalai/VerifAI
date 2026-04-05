@@ -53,7 +53,7 @@ def build_context(
             "image_urls": article_image_urls,
         },
         "suspicious_signals": _detect_suspicious_signals(
-            ocr_result, reverse_result, article_text
+            ocr_result, reverse_result, article_text, caption
         ),
     }
 
@@ -64,14 +64,17 @@ def _detect_suspicious_signals(
     ocr_result: dict,
     reverse_result: dict,
     article_text: str = "",
+    caption: str = "",
 ) -> list:
     signals = []
     ocr_text = ocr_result.get("text") or ""
     sources  = reverse_result.get("results", [])
 
+    # 🔹 OCR
     if ocr_result["success"] and not ocr_text:
         signals.append("Aucun texte détecté malgré une image soumise.")
 
+    # 🔹 Reverse image
     dates_found = [s["date"] for s in sources if s.get("date") and s["date"] != "N/A"]
     if dates_found:
         signals.append(
@@ -81,7 +84,28 @@ def _detect_suspicious_signals(
     if reverse_result["success"] and not sources:
         signals.append("Aucune source externe trouvée — image potentiellement originale ou générée.")
 
+    # 🔹 Article
     if article_text and len(article_text) < 100:
         signals.append("Contenu de l'article très court — source potentiellement peu fiable.")
+
+    # 🔥🔥 NOUVEAU : ANALYSE DU CAPTION (TRÈS IMPORTANT)
+    if caption:
+        caption_lower = caption.lower()
+
+        # 🚨 événements forts (fake news classique)
+        if any(word in caption_lower for word in ["manifestation", "attaque", "explosion", "crise", "urgence", "guerre"]):
+            signals.append("Description contient un événement fort non vérifié")
+
+        # 🧠 description trop vague
+        if len(caption.split()) < 4:
+            signals.append("Description trop vague ou insuffisante")
+
+        # 📅 date suspecte
+        if any(year in caption for year in ["2024", "2025", "2026"]):
+            signals.append("Date mentionnée dans la description sans preuve vérifiable")
+
+        # ⚠ ton sensationnaliste
+        if any(word in caption_lower for word in ["incroyable", "choquant", "urgent", "breaking"]):
+            signals.append("Langage sensationnaliste détecté")
 
     return signals
