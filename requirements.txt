@@ -5,7 +5,8 @@ pydantic
 requests
 python-dotenv
 Pillow
-requests
-openai
 pytesseract
+openai
 groq
+langdetect
+easyocr
