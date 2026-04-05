@@ -139,6 +139,9 @@ Users can upload an image directly from their device.
 ![Upload Example](docs/upload-example.png) 
 ![Upload Example](docs/upload-example1.png)
 
+This is a "real result" example
+![Upload Example](docs/authentic_result.jpg)
+
 --- 
 ### 🌐 2. URL Input 
 Users can paste a social media post URL (Twitter, Facebook, etc.). 
