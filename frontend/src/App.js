@@ -310,7 +310,7 @@ export default function VerifAI() {
           <div className="nav-right">
             <span className={`nav-link ${page === "analyze" ? "active" : ""}`} onClick={() => setPage("analyze")}>Analyze</span>
             <span className={`nav-link ${page === "how" ? "active" : ""}`} onClick={() => setPage("how")}>How it works</span>
-            <span className="nav-badge">Hackathon 2025</span>
+            <span className="nav-badge">Hackathon MENACRAFT 2026</span>
           </div>
         </div>
       </nav>
@@ -582,7 +582,7 @@ export default function VerifAI() {
         )}
       </div>
 
-      <footer>Built at <strong>TrustHack 2025</strong> · VerifAI — Explainable AI Fact-Checking · React + FastAPI + GPT-4o</footer>
+      <footer>Built at <strong>TrustHack 2026</strong> · VerifAI — Explainable AI Fact-Checking · React + FastAPI + GPT-4o</footer>
     </div>
   );
 }
