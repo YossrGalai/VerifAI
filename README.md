@@ -130,6 +130,20 @@ Modèles : schemas.py
 │ ├── reportWebVitals.js
 │ └── setupTests.js
 
+## 🔁 User Input Methods 
+VerifAI supports two ways to analyze content: 
+--- 
+### 🖼️ 1. Image Upload 
+Users can upload an image directly from their device.
+
+![Upload Example](docs/upload-example.png) 
+![Upload Example](docs/upload-example1.png)
+
+--- 
+### 🌐 2. URL Input 
+Users can paste a social media post URL (Twitter, Facebook, etc.). 
+![URL Example](docs/url-example1.png)
+![URL Example](docs/url-example2.png)
 
 ## Configuration
 
